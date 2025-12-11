@@ -29,7 +29,8 @@ const ROTATION_STEP_DEG = 10
 export default function DashboardPage() {
   const router = useRouter()
   const [frequency, setFrequency] = useState(14.23) // MHz
-  const [mode, setMode] = useState("USB")
+  const [baseMode, setBaseMode] = useState("USB")
+  const [dataEnabled, setDataEnabled] = useState(false)
   const [band, setBand] = useState("20m")
   const [antennaDirection, setAntennaDirection] = useState(330)
 
@@ -56,7 +57,7 @@ export default function DashboardPage() {
   }, [])
 
   const handleModeChange = useCallback(async (newMode: string) => {
-    setMode(newMode)
+    setBaseMode(newMode)
     try {
       const response = await fetch("/api/set-mode", {
         method: "POST",
@@ -67,8 +68,31 @@ export default function DashboardPage() {
         const data = await response.json().catch(() => ({}))
         throw new Error(data?.error || "Failed to set mode")
       }
+      // If backend keeps data on, do not change dataEnabled; backend preserves it.
     } catch (error) {
       console.error("Mode update failed:", error)
+    }
+  }, [])
+
+  const handleToggleData = useCallback(async () => {
+    try {
+      const response = await fetch("/api/set-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "Data" }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to toggle data mode")
+      }
+      // Backend returns data_mode when toggled; use it if present, else flip locally.
+      if (typeof data?.data_mode === "number") {
+        setDataEnabled(data.data_mode > 0)
+      } else {
+        setDataEnabled((prev) => !prev)
+      }
+    } catch (error) {
+      console.error("Data mode toggle failed:", error)
     }
   }, [])
 
@@ -155,7 +179,12 @@ export default function DashboardPage() {
           <div className="lg:col-span-2 space-y-6">
             <AudioStreamSection />
             <FrequencyControl frequency={frequency} onFrequencyChange={handleFrequencyChange} />
-            <ModeSelector selectedMode={mode} onModeChange={handleModeChange} />
+            <ModeSelector
+              baseMode={baseMode}
+              dataEnabled={dataEnabled}
+              onModeChange={handleModeChange}
+              onToggleData={handleToggleData}
+            />
             <BandSelector selectedBand={band} onBandChange={handleBandChange} />
           </div>
 

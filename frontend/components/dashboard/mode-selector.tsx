@@ -5,13 +5,15 @@ import { Button } from "@/components/ui/button"
 import { Settings2 } from "lucide-react"
 
 interface ModeSelectorProps {
-  selectedMode: string
+  baseMode: string
+  dataEnabled: boolean
   onModeChange: (mode: string) => void
+  onToggleData: () => void
 }
 
-const MODES = ["LSB", "USB", "AM", "CW", "FM", "RTTY", "Data"]
+const MODES = ["LSB", "USB", "AM", "CW", "FM", "RTTY"]
 
-export function ModeSelector({ selectedMode, onModeChange }: ModeSelectorProps) {
+export function ModeSelector({ baseMode, dataEnabled, onModeChange, onToggleData }: ModeSelectorProps) {
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
@@ -25,11 +27,11 @@ export function ModeSelector({ selectedMode, onModeChange }: ModeSelectorProps) 
           {MODES.map((mode) => (
             <Button
               key={mode}
-              variant={selectedMode === mode ? "default" : "outline"}
+              variant={baseMode === mode ? "default" : "outline"}
               size="sm"
               onClick={() => onModeChange(mode)}
               className={`transition-all ${
-                selectedMode === mode
+                baseMode === mode
                   ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
                   : "hover:border-primary/50"
               }`}
@@ -37,6 +39,17 @@ export function ModeSelector({ selectedMode, onModeChange }: ModeSelectorProps) 
               {mode}
             </Button>
           ))}
+          <Button
+            key="Data"
+            variant={dataEnabled ? "default" : "outline"}
+            size="sm"
+            onClick={onToggleData}
+            className={`transition-all ${
+              dataEnabled ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25" : "hover:border-primary/50"
+            }`}
+          >
+            Data
+          </Button>
         </div>
       </CardContent>
     </Card>

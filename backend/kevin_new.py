@@ -1,5 +1,6 @@
 # server.py - Combined Icom CI-V + Green Heron Rotator Control (with USB-D1 toggle!)
 from flask import Flask, request, jsonify
+import os
 import serial
 import time
 import atexit
@@ -15,6 +16,10 @@ CI_V_FROM = 0xE0
 
 ROTATOR_PORT = "COM5"
 ROTATOR_BAUD = 4800
+
+# Simple login credentials (override via environment variables if desired)
+ADMIN_EMAIL = os.getenv("ET3AA_EMAIL", "et3aastation@gmail.com")
+ADMIN_PASSWORD = os.getenv("ET3AA_PASSWORD", "et3aa123")
 
 # ---------------------- SERIAL CONNECTIONS ----------------------
 radio_ser = None
@@ -178,6 +183,21 @@ def send_rotator(cmd):
 def index():
     return "<h1>Ham Shack Server Running – Radio + Rotator</h1>"
 
+# === AUTH ===
+@app.route("/login", methods=["POST"])
+def login():
+    data = request.get_json(silent=True) or {}
+    email = str(data.get("email", "")).strip()
+    password = str(data.get("password", "")).strip()
+
+    if not email or not password:
+        return jsonify({"status": "error", "error": "Email and password required"}), 400
+
+    if email.lower() == ADMIN_EMAIL.lower() and password == ADMIN_PASSWORD:
+        return jsonify({"status": "OK"})
+
+    return jsonify({"status": "error", "error": "Invalid credentials"}), 401
+
 # === RADIO ===
 @app.route("/frequency", methods=["GET"])
 def get_frequency():
@@ -212,6 +232,13 @@ def set_mode():
     if not radio_ser: return jsonify({"error": "Radio not open"}), 500
     data = request.get_json(silent=True) or {}
     mode_input = data.get("mode")
+
+    # Snapshot current combined state (used for both branches)
+    state_snapshot = read_mode_and_data_state()
+    current_data_mode = state_snapshot["data_mode"] if state_snapshot else 0
+    current_filter = state_snapshot["filter"] if state_snapshot else 1
+    current_mode_byte = state_snapshot["mode_byte"] if state_snapshot else None
+    current_base_name = state_snapshot["base_mode"] if state_snapshot else None
 
     # Special "data" keyword → toggle data mode
     if isinstance(mode_input, str) and mode_input.strip().lower() == "data":
@@ -250,9 +277,32 @@ def set_mode():
     else:
         mode_byte = int(mode_input or 1)
 
-    filt = int(data.get("filter", 1))
+    # If data mode is currently active and caller did not specify a filter,
+    # stick with the data filter (D1/2/3) so the combined mode persists visually.
+    requested_filter = data.get("filter", None)
+    if requested_filter is None and current_data_mode:
+        filt = current_data_mode
+    else:
+        filt = int(requested_filter or 1)
+
     radio_ser.write(build_set_mode_command(mode_byte, filt))
     time.sleep(0.2)
+
+    # If data was active, re-assert it so changing base mode keeps D1 on.
+    if current_data_mode:
+        radio_ser.write(build_set_data_mode(current_data_mode))
+        time.sleep(0.1)
+        combined_name = f"{MODE_NAMES.get(mode_byte, 'Unknown')}-D{current_data_mode}"
+        return jsonify({
+            "status": "OK",
+            "mode_name": combined_name,
+            "mode_byte": mode_byte,
+            "filter": filt,
+            "data_mode": current_data_mode,
+            "base_mode": MODE_NAMES.get(mode_byte, "Unknown"),
+            "note": "Mode changed while data on; kept data mode active"
+        })
+
     return jsonify({
         "status": "OK",
         "mode_name": MODE_NAMES.get(mode_byte, "Unknown"),
