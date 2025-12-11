@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,6 +13,8 @@ import { Radio, AlertCircle } from "lucide-react"
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectTo = searchParams.get("redirect") || "/dashboard"
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
@@ -23,13 +25,25 @@ export default function LoginPage() {
     setError("")
     setIsLoading(true)
 
-    // Simple auth check
-    if (email === "et3aastation@gmail.com" && password === "et3aa123") {
-      // Set auth cookie/session
-      document.cookie = "et3aa_auth=authenticated; path=/; max-age=86400"
-      router.push("/dashboard")
-    } else {
-      setError("Invalid email or password")
+    try {
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email, password }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || "Invalid email or password")
+      }
+
+      router.replace(redirectTo)
+      router.refresh()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Invalid email or password"
+      setError(message)
       setIsLoading(false)
     }
   }

@@ -11,12 +11,27 @@ import { BandSelector } from "@/components/dashboard/band-selector"
 import { PTTButton } from "@/components/dashboard/ptt-button"
 import { AntennaCompass } from "@/components/dashboard/antenna-compass"
 
+const BAND_TO_FREQ_MHZ: Record<string, number> = {
+  "160m": 1.9,
+  "80m": 3.75,
+  "40m": 7.15,
+  "30m": 10.12,
+  "20m": 14.23,
+  "17m": 18.13,
+  "15m": 21.3,
+  "12m": 24.95,
+  "10m": 28.3,
+  "6m": 50.125,
+}
+
+const ROTATION_STEP_DEG = 10
+
 export default function DashboardPage() {
   const router = useRouter()
-  const [frequency, setFrequency] = useState(14.2) // MHz
+  const [frequency, setFrequency] = useState(14.23) // MHz
   const [mode, setMode] = useState("USB")
   const [band, setBand] = useState("20m")
-  const [antennaDirection, setAntennaDirection] = useState(0)
+  const [antennaDirection, setAntennaDirection] = useState(330)
 
   const handleLogout = () => {
     document.cookie = "et3aa_auth=; path=/; max-age=0"
@@ -25,42 +40,80 @@ export default function DashboardPage() {
 
   const handleFrequencyChange = useCallback(async (newFreq: number) => {
     setFrequency(newFreq)
-    // TODO: Connect to setFrequency API
-    // await fetch('/api/set-frequency', { method: 'POST', body: JSON.stringify({ frequency: newFreq }) })
+    try {
+      const response = await fetch("/api/set-frequency", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ frequency: newFreq }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data?.error || "Failed to set frequency")
+      }
+    } catch (error) {
+      console.error("Frequency update failed:", error)
+    }
   }, [])
 
   const handleModeChange = useCallback(async (newMode: string) => {
     setMode(newMode)
-    // TODO: Connect to setMode API
-    // await fetch('/api/set-mode', { method: 'POST', body: JSON.stringify({ mode: newMode }) })
+    try {
+      const response = await fetch("/api/set-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: newMode }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data?.error || "Failed to set mode")
+      }
+    } catch (error) {
+      console.error("Mode update failed:", error)
+    }
   }, [])
 
-  const handleBandChange = useCallback(async (newBand: string) => {
-    setBand(newBand)
-    // Map band to frequency
-    const bandFrequencies: Record<string, number> = {
-      "80m": 3.75,
-      "40m": 7.15,
-      "30m": 10.125,
-      "20m": 14.2,
-      "17m": 18.12,
-      "15m": 21.2,
-      "10m": 28.5,
-      "6m": 50.15,
-    }
-    setFrequency(bandFrequencies[newBand] || 14.2)
-    // TODO: Connect to setBand API
-    // await fetch('/api/set-band', { method: 'POST', body: JSON.stringify({ band: newBand }) })
-  }, [])
+  const handleBandChange = useCallback(
+    async (newBand: string) => {
+      setBand(newBand)
+      const mappedFreq = BAND_TO_FREQ_MHZ[newBand]
+      if (mappedFreq) {
+        setFrequency(mappedFreq)
+      }
+
+      try {
+        const response = await fetch("/api/set-band", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ band: newBand }),
+        })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          throw new Error(data?.error || "Failed to set band")
+        }
+      } catch (error) {
+        console.error("Band update failed:", error)
+      }
+    },
+    [],
+  )
 
   const handleRotateAntenna = useCallback(async (direction: "cw" | "ccw") => {
     setAntennaDirection((prev) => {
-      const change = direction === "cw" ? 5 : -5
+      const change = direction === "cw" ? ROTATION_STEP_DEG : -ROTATION_STEP_DEG
       const newDir = (prev + change + 360) % 360
-      return newDir
+      return newDir === 360 ? 0 : newDir
     })
-    // TODO: Connect to rotate APIs
-    // await fetch(`/api/rotate_${direction}`, { method: 'POST' })
+
+    try {
+      const endpoint = direction === "cw" ? "/api/rotate-cw" : "/api/rotate-ccw"
+      const response = await fetch(endpoint, { method: "POST" })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data?.error || "Failed to rotate antenna")
+      }
+    } catch (error) {
+      console.error("Antenna rotation failed:", error)
+    }
   }, [])
 
   return (

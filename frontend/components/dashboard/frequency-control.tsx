@@ -1,7 +1,9 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Radio } from "lucide-react"
 
 interface FrequencyControlProps {
@@ -19,21 +21,27 @@ export function FrequencyControl({ frequency, onFrequencyChange }: FrequencyCont
     { label: "+100", value: 0.1 },
   ]
 
+  const [inputValue, setInputValue] = useState(frequency.toFixed(3))
+  const [isEditing, setIsEditing] = useState(false)
+
+  useEffect(() => {
+    setInputValue(frequency.toFixed(3))
+  }, [frequency])
+
   const handleAdjust = (adjustment: number) => {
     const newFreq = Math.max(0.1, frequency + adjustment)
     onFrequencyChange(Number.parseFloat(newFreq.toFixed(3)))
   }
 
-  // Format frequency for display
-  const formatFrequency = (freq: number) => {
-    const parts = freq.toFixed(3).split(".")
-    return {
-      mhz: parts[0],
-      khz: parts[1] || "000",
+  const commitInput = () => {
+    const parsed = Number.parseFloat(inputValue)
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setInputValue(frequency.toFixed(3))
+      return
     }
+    onFrequencyChange(Number.parseFloat(parsed.toFixed(3)))
+    setIsEditing(false)
   }
-
-  const { mhz, khz } = formatFrequency(frequency)
 
   return (
     <Card className="bg-card border-border">
@@ -44,14 +52,37 @@ export function FrequencyControl({ frequency, onFrequencyChange }: FrequencyCont
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Frequency Display */}
-        <div className="bg-secondary rounded-lg p-4 text-center">
-          <div className="font-mono text-4xl md:text-5xl font-bold text-primary tracking-wider">
-            <span>{mhz}</span>
-            <span className="text-muted-foreground">.</span>
-            <span>{khz}</span>
-            <span className="text-lg ml-2 text-muted-foreground font-normal">MHz</span>
-          </div>
+        {/* Frequency Display (toggleable edit) */}
+        <div className="bg-secondary rounded-lg p-4 flex items-center justify-center gap-3">
+          {isEditing ? (
+            <>
+              <Input
+                type="number"
+                step="0.001"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onBlur={commitInput}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitInput()
+                }}
+                autoFocus
+                className="font-mono text-4xl md:text-5xl font-bold text-center bg-background border-primary/40 focus:border-primary"
+              />
+              <Button variant="secondary" onClick={commitInput} className="whitespace-nowrap">
+                Save
+              </Button>
+            </>
+          ) : (
+            <>
+              <div className="font-mono text-4xl md:text-5xl font-bold text-amber-400 tracking-wider">
+                {frequency.toFixed(3)}
+                <span className="text-lg ml-2 text-muted-foreground font-normal">MHz</span>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
+                Edit
+              </Button>
+            </>
+          )}
         </div>
 
         {/* Adjustment Buttons */}
@@ -75,7 +106,7 @@ export function FrequencyControl({ frequency, onFrequencyChange }: FrequencyCont
         </div>
 
         <p className="text-xs text-muted-foreground text-center">
-          Click buttons to adjust frequency. Changes will be sent to the remote station.
+          Adjust with the buttons or type a value directly. Changes are sent to the remote station.
         </p>
       </CardContent>
     </Card>

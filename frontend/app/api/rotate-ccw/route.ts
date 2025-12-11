@@ -1,16 +1,12 @@
 import { NextResponse } from "next/server"
+import { postToBackend } from "@/lib/backend"
 
 export async function POST() {
   try {
-    // TODO: Connect to your actual antenna rotator backend
-    // Example: await fetch('http://your-rotator-server/api/rotate_ccw', {
-    //   method: 'POST'
-    // })
-
-    console.log("Rotating antenna counter-clockwise")
-
-    return NextResponse.json({ success: true, direction: "ccw" })
+    const backendResponse = await postToBackend<{ status: string }>({ path: "/rotate_ccw" })
+    return NextResponse.json({ success: true, direction: "ccw", backend: backendResponse })
   } catch (error) {
-    return NextResponse.json({ success: false, error: "Failed to rotate antenna" }, { status: 500 })
+    const message = error instanceof Error ? error.message : "Failed to rotate antenna"
+    return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
 }

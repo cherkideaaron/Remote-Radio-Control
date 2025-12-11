@@ -4,11 +4,15 @@ import { useState, useRef, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Mic, Square, Radio } from "lucide-react"
+import { postFormDataToBackend } from "@/lib/backend"
 
 export function PTTButton() {
   const [isRecording, setIsRecording] = useState(false)
   const [recordingTime, setRecordingTime] = useState(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const [error, setError] = useState<string>("")
 
   useEffect(() => {
     if (isRecording) {
@@ -29,16 +33,42 @@ export function PTTButton() {
     }
   }, [isRecording])
 
-  const handleStart = () => {
-    setIsRecording(true)
-    // TODO: Start PTT transmission
-    // await fetch('/api/ptt/start', { method: 'POST' })
+  const handleStart = async () => {
+    setError("")
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const recorder = new MediaRecorder(stream)
+      chunksRef.current = []
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data)
+      }
+      recorder.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" })
+        const form = new FormData()
+        form.append("audio", blob, "ptt-recording.webm")
+        try {
+          await postFormDataToBackend({ path: "/upload_recording", formData: form })
+        } catch (uploadErr) {
+          const message = uploadErr instanceof Error ? uploadErr.message : "Upload failed"
+          setError(message)
+        }
+        // stop tracks
+        recorder.stream.getTracks().forEach((t) => t.stop())
+      }
+      recorder.start()
+      mediaRecorderRef.current = recorder
+      setIsRecording(true)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Microphone access failed"
+      setError(message)
+    }
   }
 
   const handleStop = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop()
+    }
     setIsRecording(false)
-    // TODO: Stop PTT transmission
-    // await fetch('/api/ptt/stop', { method: 'POST' })
   }
 
   const formatTime = (seconds: number) => {
@@ -104,6 +134,7 @@ export function PTTButton() {
         <p className="text-xs text-muted-foreground text-center">
           {isRecording ? "Transmitting... Click the button or Stop to finish" : "Click to start transmitting"}
         </p>
+        {error && <p className="text-xs text-destructive text-center">{error}</p>}
       </CardContent>
     </Card>
   )

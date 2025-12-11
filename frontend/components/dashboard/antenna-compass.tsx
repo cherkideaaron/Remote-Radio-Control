@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Compass, RotateCcw, RotateCw } from "lucide-react"
@@ -10,6 +11,28 @@ interface AntennaCompassProps {
 }
 
 export function AntennaCompass({ direction, onRotate }: AntennaCompassProps) {
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  if (!mounted) {
+    return (
+      <Card className="bg-card border-border">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Compass className="w-5 h-5 text-primary" />
+            Antenna Direction
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col items-center space-y-4">
+          <div className="w-48 h-48 bg-secondary/60 animate-pulse rounded-full" />
+        </CardContent>
+      </Card>
+    )
+  }
+
   const getDirectionLabel = (deg: number) => {
     if (deg >= 337.5 || deg < 22.5) return "N"
     if (deg >= 22.5 && deg < 67.5) return "NE"

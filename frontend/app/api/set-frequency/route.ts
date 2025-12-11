@@ -1,19 +1,25 @@
 import { NextResponse } from "next/server"
+import { postToBackend } from "@/lib/backend"
 
 export async function POST(request: Request) {
   try {
     const { frequency } = await request.json()
+    const frequencyMhz = Number(frequency)
 
-    // TODO: Connect to your actual radio control backend
-    // Example: await fetch('http://your-radio-server/api/frequency', {
-    //   method: 'POST',
-    //   body: JSON.stringify({ frequency })
-    // })
+    if (!Number.isFinite(frequencyMhz) || frequencyMhz <= 0) {
+      return NextResponse.json({ success: false, error: "Invalid frequency value" }, { status: 400 })
+    }
 
-    console.log(`Setting frequency to: ${frequency} MHz`)
+    const frequency_hz = Math.round(frequencyMhz * 1_000_000)
 
-    return NextResponse.json({ success: true, frequency })
+    const backendResponse = await postToBackend<{ status: string }>({
+      path: "/frequency",
+      body: { frequency_hz },
+    })
+
+    return NextResponse.json({ success: true, frequency_hz, backend: backendResponse })
   } catch (error) {
-    return NextResponse.json({ success: false, error: "Failed to set frequency" }, { status: 500 })
+    const message = error instanceof Error ? error.message : "Failed to set frequency"
+    return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
 }

@@ -1,51 +1,72 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Slider } from "@/components/ui/slider"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Volume2, VolumeX } from "lucide-react"
+import { BACKEND_URL } from "@/lib/backend"
 
 export function AudioStreamSection() {
-  const [isMuted, setIsMuted] = useState(false)
+  const [isOn, setIsOn] = useState(false)
   const [volume, setVolume] = useState(75)
   const [audioLevels, setAudioLevels] = useState<number[]>(Array(20).fill(0))
   const animationRef = useRef<number | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
-  // Simulate audio visualization
+  // Drive visualization (simple simulated levels based on volume/on state)
   useEffect(() => {
     const animate = () => {
-      if (!isMuted && volume > 0) {
+      if (isOn && volume > 0) {
         setAudioLevels((prev) => prev.map(() => Math.random() * 100 * (volume / 100)))
       } else {
         setAudioLevels(Array(20).fill(0))
       }
       animationRef.current = requestAnimationFrame(animate)
     }
-
     animationRef.current = requestAnimationFrame(animate)
-
     return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current)
-      }
+      if (animationRef.current) cancelAnimationFrame(animationRef.current)
     }
-  }, [isMuted, volume])
+  }, [isOn, volume])
+
+  // Apply volume to audio element
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume / 100
+    }
+  }, [volume])
+
+  const toggleAudio = async (checked: boolean) => {
+    setIsOn(checked)
+    const audioEl = audioRef.current
+    if (!audioEl) return
+
+    if (checked) {
+      audioEl.src = `${BACKEND_URL}/stream.wav?t=${Date.now()}`
+      try {
+        await audioEl.play()
+      } catch (e) {
+        console.error("Autoplay blocked:", e)
+      }
+    } else {
+      audioEl.pause()
+      audioEl.src = ""
+    }
+  }
 
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
         <CardTitle className="text-lg flex items-center gap-2">
-          {isMuted ? (
-            <VolumeX className="w-5 h-5 text-muted-foreground" />
-          ) : (
-            <Volume2 className="w-5 h-5 text-primary" />
-          )}
+          {isOn ? <Volume2 className="w-5 h-5 text-primary" /> : <VolumeX className="w-5 h-5 text-muted-foreground" />}
           Audio Stream
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <audio ref={audioRef} style={{ display: "none" }} />
+
         {/* Audio Visualization */}
         <div className="h-24 bg-secondary rounded-lg p-3 flex items-end justify-center gap-1">
           {audioLevels.map((level, i) => (
@@ -70,32 +91,25 @@ export function AudioStreamSection() {
 
         {/* Controls */}
         <div className="flex items-center gap-6">
-          {/* Mute Checkbox */}
+          {/* Audio On Checkbox */}
           <div className="flex items-center gap-2">
-            <Checkbox id="mute" checked={!isMuted} onCheckedChange={(checked) => setIsMuted(!checked)} />
-            <Label htmlFor="mute" className="text-sm cursor-pointer">
-              {isMuted ? "Unmute Audio" : "Audio On"}
+            <Checkbox id="audio-on" checked={isOn} onCheckedChange={(checked) => toggleAudio(Boolean(checked))} />
+            <Label htmlFor="audio-on" className="text-sm cursor-pointer">
+              {isOn ? "Audio On" : "Enable Audio"}
             </Label>
           </div>
 
           {/* Volume Slider */}
           <div className="flex-1 flex items-center gap-3">
             <VolumeX className="w-4 h-4 text-muted-foreground" />
-            <Slider
-              value={[volume]}
-              onValueChange={(v) => setVolume(v[0])}
-              max={100}
-              step={1}
-              className="flex-1"
-              disabled={isMuted}
-            />
+            <Slider value={[volume]} onValueChange={(v) => setVolume(v[0])} max={100} step={1} className="flex-1" />
             <Volume2 className="w-4 h-4 text-muted-foreground" />
             <span className="text-sm text-muted-foreground w-10 text-right">{volume}%</span>
           </div>
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Audio stream from the remote receiver. Volume control is local only.
+          Toggle audio to hear the server output. Volume control is local only.
         </p>
       </CardContent>
     </Card>
