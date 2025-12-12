@@ -10,6 +10,7 @@ import { ModeSelector } from "@/components/dashboard/mode-selector"
 import { BandSelector } from "@/components/dashboard/band-selector"
 import { PTTButton } from "@/components/dashboard/ptt-button"
 import { AntennaCompass } from "@/components/dashboard/antenna-compass"
+import { LoggingTable } from "@/components/dashboard/logging-table"
 
 const BAND_TO_FREQ_MHZ: Record<string, number> = {
   "160m": 1.9,
@@ -230,6 +231,7 @@ export default function DashboardPage() {
           {/* Right Column - PTT & Antenna */}
           <div className="space-y-6">
             <PTTButton />
+            <LoggingTable currentFrequency={frequency} />
             <AntennaCompass direction={antennaDirection} onRotate={handleRotateAntenna} />
           </div>
         </div>
