@@ -17,9 +17,18 @@ app = Flask(__name__)
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,ngrok-skip-browser-warning')
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    # Handle ngrok warning bypass
+    if request.headers.get('ngrok-skip-browser-warning'):
+        response.headers.add('ngrok-skip-browser-warning', 'true')
     return response
+
+# Handle OPTIONS requests for CORS preflight
+@app.route("/<path:path>", methods=["OPTIONS"])
+@app.route("/", methods=["OPTIONS"])
+def options_handler(path=""):
+    return "", 200
 
 # ---------------------- CONFIGURATION ----------------------
 RADIO_PORT = "COM4"

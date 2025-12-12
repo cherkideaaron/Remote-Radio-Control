@@ -1,6 +1,7 @@
 const DEFAULT_BACKEND_URL = "http://localhost:5000"
 
-export const BACKEND_URL = process.env.BACKEND_URL || DEFAULT_BACKEND_URL
+// Next.js requires NEXT_PUBLIC_ prefix for client-side environment variables
+export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_URL || DEFAULT_BACKEND_URL
 
 interface PostOptions<TBody> {
   path: string
@@ -12,9 +13,14 @@ interface PostOptions<TBody> {
  */
 export async function postToBackend<TResponse, TBody = unknown>({ path, body }: PostOptions<TBody>) {
   const target = `${BACKEND_URL}${path}`
+  const headers: HeadersInit = { "Content-Type": "application/json" }
+  // Skip ngrok browser warning if using ngrok
+  if (BACKEND_URL.includes("ngrok")) {
+    headers["ngrok-skip-browser-warning"] = "true"
+  }
   const response = await fetch(target, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: body ? JSON.stringify(body) : undefined,
     cache: "no-store",
   })
@@ -34,8 +40,14 @@ export async function postFormDataToBackend<TResponse>({ path, formData }: { pat
   
   let response: Response
   try {
+    const headers: HeadersInit = {}
+    // Skip ngrok browser warning if using ngrok
+    if (BACKEND_URL.includes("ngrok")) {
+      headers["ngrok-skip-browser-warning"] = "true"
+    }
     response = await fetch(target, {
       method: "POST",
+      headers,
       body: formData,
       cache: "no-store",
     })

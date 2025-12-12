@@ -3,7 +3,14 @@ import { BACKEND_URL } from "@/lib/backend"
 
 export async function GET() {
   try {
-    const response = await fetch(`${BACKEND_URL}/mode`, { cache: "no-store" })
+    const headers: HeadersInit = {}
+    if (BACKEND_URL.includes("ngrok")) {
+      headers["ngrok-skip-browser-warning"] = "true"
+    }
+    const response = await fetch(`${BACKEND_URL}/mode`, { 
+      cache: "no-store",
+      headers
+    })
     const data = await response.json()
 
     if (!response.ok) {
