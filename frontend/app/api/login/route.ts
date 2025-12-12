@@ -13,32 +13,12 @@ export async function POST(request: Request) {
     const supabase = createServerClient()
     const normalizedEmail = email.toLowerCase().trim()
     
-    // Try both "Users" and "users" table names (PostgreSQL is case-sensitive)
-    // Supabase typically stores unquoted table names as lowercase
-    let data = null
-    let error = null
-    
-    // First try "users" (lowercase - most common in PostgreSQL)
-    let result = await supabase
-      .from("users")
+    // Use "Users" (capitalized) as that's how it was created in Supabase
+    const { data, error } = await supabase
+      .from("Users")
       .select("email, password")
       .eq("email", normalizedEmail)
       .maybeSingle()
-    
-    data = result.data
-    error = result.error
-    
-    // If no data and no error, try "Users" (capitalized)
-    if (!data && !error) {
-      result = await supabase
-        .from("Users")
-        .select("email, password")
-        .eq("email", normalizedEmail)
-        .maybeSingle()
-      
-      data = result.data
-      error = result.error
-    }
 
     // Check for query errors (not just no rows)
     if (error) {
