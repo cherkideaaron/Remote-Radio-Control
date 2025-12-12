@@ -26,6 +26,14 @@ const BAND_TO_FREQ_MHZ: Record<string, number> = {
 
 const ROTATION_STEP_DEG = 10
 
+// Helper function to check if user is authenticated
+function checkAuth(): boolean {
+  if (typeof document === "undefined") return false
+  const cookies = document.cookie.split(";")
+  const authCookie = cookies.find((cookie) => cookie.trim().startsWith("et3aa_auth="))
+  return authCookie?.includes("authenticated") ?? false
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [frequency, setFrequency] = useState(14.23) // MHz
@@ -33,10 +41,52 @@ export default function DashboardPage() {
   const [dataEnabled, setDataEnabled] = useState(false)
   const [band, setBand] = useState("20m")
   const [antennaDirection, setAntennaDirection] = useState(330)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
 
-  const handleLogout = () => {
-    document.cookie = "et3aa_auth=; path=/; max-age=0"
-    router.push("/")
+  // Check authentication on mount and redirect if not authenticated
+  useEffect(() => {
+    const authCheck = async () => {
+      // Check cookie first
+      if (!checkAuth()) {
+        router.replace("/login?redirect=/dashboard")
+        return
+      }
+
+      // Double-check with API
+      try {
+        const response = await fetch("/api/check-auth", {
+          method: "GET",
+          credentials: "include",
+        })
+        if (!response.ok) {
+          router.replace("/login?redirect=/dashboard")
+          return
+        }
+        setIsAuthenticated(true)
+      } catch (error) {
+        router.replace("/login?redirect=/dashboard")
+      }
+    }
+
+    authCheck()
+  }, [router])
+
+  // Don't render dashboard content until authenticated
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-muted-foreground">Verifying authentication...</p>
+        </div>
+      </div>
+    )
+  }
+
+  const handleLogout = async () => {
+    // Clear the cookie
+    document.cookie = "et3aa_auth=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT"
+    // Redirect to login immediately
+    router.replace("/login")
   }
 
   const handleFrequencyChange = useCallback(async (newFreq: number) => {

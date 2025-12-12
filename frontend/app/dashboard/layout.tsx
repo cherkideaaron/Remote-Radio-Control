@@ -6,7 +6,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const isAuthed = store.get("et3aa_auth")?.value === "authenticated"
 
   if (!isAuthed) {
-    redirect("/unauthorized")
+    redirect("/login?redirect=/dashboard")
   }
 
   return <>{children}</>

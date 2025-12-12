@@ -11,29 +11,73 @@ export async function POST(request: Request) {
 
     // Query Supabase Users table
     const supabase = createServerClient()
-    const { data, error } = await supabase
-      .from("Users")
+    const normalizedEmail = email.toLowerCase().trim()
+    
+    // Try both "Users" and "users" table names (PostgreSQL is case-sensitive)
+    // Supabase typically stores unquoted table names as lowercase
+    let data = null
+    let error = null
+    
+    // First try "users" (lowercase - most common in PostgreSQL)
+    let result = await supabase
+      .from("users")
       .select("email, password")
-      .eq("email", email.toLowerCase().trim())
-      .single()
+      .eq("email", normalizedEmail)
+      .maybeSingle()
+    
+    data = result.data
+    error = result.error
+    
+    // If no data and no error, try "Users" (capitalized)
+    if (!data && !error) {
+      result = await supabase
+        .from("Users")
+        .select("email, password")
+        .eq("email", normalizedEmail)
+        .maybeSingle()
+      
+      data = result.data
+      error = result.error
+    }
 
-    if (error || !data) {
+    // Check for query errors (not just no rows)
+    if (error) {
       console.error("Supabase query error:", error)
-      return NextResponse.json({ success: false, error: "Invalid email or password" }, { status: 401 })
+      console.error("Attempted email:", normalizedEmail)
+      return NextResponse.json({ 
+        success: false, 
+        error: "Database error. Please try again later." 
+      }, { status: 500 })
+    }
+
+    // Check if user exists
+    if (!data) {
+      console.log(`Login attempt with non-existent email: ${normalizedEmail}`)
+      return NextResponse.json({ 
+        success: false, 
+        error: "Invalid email or password" 
+      }, { status: 401 })
     }
 
     // Compare passwords (plain text as requested)
     if (data.password !== password) {
-      return NextResponse.json({ success: false, error: "Invalid email or password" }, { status: 401 })
+      console.log(`Login attempt with incorrect password for: ${normalizedEmail}`)
+      return NextResponse.json({ 
+        success: false, 
+        error: "Invalid email or password" 
+      }, { status: 401 })
     }
+    
+    console.log(`Successful login for: ${normalizedEmail}`)
 
-    // Authentication successful - set cookie
+    // Authentication successful - set session cookie (expires when browser closes)
     const response = NextResponse.json({ success: true, message: "Authentication successful" })
     response.cookies.set("et3aa_auth", "authenticated", {
       httpOnly: true,
       sameSite: "lax",
       path: "/",
-      maxAge: 60 * 60 * 24, // 1 day
+      // No maxAge means session cookie - expires when browser closes
+      secure: process.env.NODE_ENV === "production", // Use secure in production
     })
 
     return response
