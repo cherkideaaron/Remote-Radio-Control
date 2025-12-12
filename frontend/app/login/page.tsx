@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -19,6 +19,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+
+  // Clear any existing auth cookie when visiting login page
+  useEffect(() => {
+    // Clear the cookie client-side
+    document.cookie = "et3aa_auth=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT"
+    // Also call logout API to clear server-side
+    fetch("/api/logout", { method: "POST", credentials: "include" }).catch(() => {
+      // Ignore errors - this is just cleanup
+    })
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

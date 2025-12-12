@@ -35,10 +35,19 @@ export default function DashboardPage() {
   const [antennaDirection, setAntennaDirection] = useState(330)
 
   const handleLogout = async () => {
-    // Clear the cookie
+    try {
+      // Call logout API to properly clear server-side cookie
+      await fetch("/api/logout", {
+        method: "POST",
+        credentials: "include",
+      })
+    } catch (error) {
+      console.error("Logout error:", error)
+    }
+    // Clear client-side cookie as backup
     document.cookie = "et3aa_auth=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT"
-    // Redirect to login immediately
-    router.replace("/login")
+    // Hard redirect to login
+    window.location.href = "/login"
   }
 
   const handleFrequencyChange = useCallback(async (newFreq: number) => {

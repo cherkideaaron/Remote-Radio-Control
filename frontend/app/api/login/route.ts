@@ -50,13 +50,14 @@ export async function POST(request: Request) {
     
     console.log(`Successful login for: ${normalizedEmail}`)
 
-    // Authentication successful - set session cookie (expires when browser closes)
+    // Authentication successful - set cookie with very short expiration (5 minutes)
+    // This ensures users must re-authenticate frequently
     const response = NextResponse.json({ success: true, message: "Authentication successful" })
     response.cookies.set("et3aa_auth", "authenticated", {
       httpOnly: true,
       sameSite: "lax",
       path: "/",
-      // No maxAge means session cookie - expires when browser closes
+      maxAge: 60 * 5, // 5 minutes - expires after 5 minutes
       secure: process.env.NODE_ENV === "production", // Use secure in production
     })
 
