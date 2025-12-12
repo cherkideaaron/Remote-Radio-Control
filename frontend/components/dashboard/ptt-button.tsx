@@ -13,6 +13,7 @@ export function PTTButton() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const [error, setError] = useState<string>("")
+  const [uploadStatus, setUploadStatus] = useState<string>("")
 
   useEffect(() => {
     if (isRecording) {
@@ -46,14 +47,21 @@ export function PTTButton() {
         const blob = new Blob(chunksRef.current, { type: "audio/webm" })
         const form = new FormData()
         form.append("audio", blob, "ptt-recording.webm")
+        
+        // stop tracks immediately
+        recorder.stream.getTracks().forEach((t) => t.stop())
+        
+        setUploadStatus("Processing...")
+        setError("")
         try {
           await postFormDataToBackend({ path: "/upload_recording", formData: form })
+          setUploadStatus("✅ Sent and queued for playback!")
+          setTimeout(() => setUploadStatus(""), 3000)
         } catch (uploadErr) {
           const message = uploadErr instanceof Error ? uploadErr.message : "Upload failed"
           setError(message)
+          setUploadStatus("")
         }
-        // stop tracks
-        recorder.stream.getTracks().forEach((t) => t.stop())
       }
       recorder.start()
       mediaRecorderRef.current = recorder
@@ -134,6 +142,9 @@ export function PTTButton() {
         <p className="text-xs text-muted-foreground text-center">
           {isRecording ? "Transmitting... Click the button or Stop to finish" : "Click to start transmitting"}
         </p>
+        {uploadStatus && (
+          <p className="text-xs text-green-500 text-center">{uploadStatus}</p>
+        )}
         {error && <p className="text-xs text-destructive text-center">{error}</p>}
       </CardContent>
     </Card>

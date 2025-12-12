@@ -193,6 +193,32 @@ def _play_wav_to_output(wav_path: str):
         raise
 
 
+def _play_and_cleanup(msg_path: str):
+    """Background thread function to play audio and clean up."""
+    try:
+        with playback_lock:
+            if not os.path.exists(msg_path):
+                print(f"⚠️ MSG.wav not found at {msg_path}, skipping playback")
+                return
+            
+            _play_wav_to_output(msg_path)
+            
+            # Clean up MSG.wav after playback
+            if os.path.exists(msg_path):
+                os.remove(msg_path)
+                print("🗑️ MSG.wav deleted after playback.")
+    except Exception as e:
+        print(f"❌ Error in background playback thread: {e}")
+        import traceback
+        traceback.print_exc()
+        # Best-effort cleanup
+        try:
+            if os.path.exists(msg_path):
+                os.remove(msg_path)
+        except Exception:
+            pass
+
+
 @app.route("/upload_recording", methods=["POST"])
 def upload_recording():
     try:
@@ -211,39 +237,38 @@ def upload_recording():
         audio_file.save(temp_path)
         print(f"   Saved temp file: {temp_path}")
 
-        # Ensure only one playback at a time
-        with playback_lock:
-            # Remove old MSG if present
-            if os.path.exists(msg_path):
-                print(f"   Removing old MSG.wav")
+        # Remove old MSG if present (before acquiring lock to avoid blocking)
+        if os.path.exists(msg_path):
+            print(f"   Removing old MSG.wav")
+            try:
                 os.remove(msg_path)
+            except Exception as e:
+                print(f"   Warning: Could not remove old MSG.wav: {e}")
 
-            print(f"   Converting WebM to WAV...")
+        # Convert WebM to WAV
+        print(f"   Converting WebM to WAV...")
+        try:
             sound = AudioSegment.from_file(temp_path)
             sound.export(msg_path, format="wav")
-            print(f"✔️ Saved recording to {msg_path}, starting playback...")
+            print(f"✔️ Saved recording to {msg_path}")
+        except Exception as conv_err:
+            print(f"❌ Conversion failed: {conv_err}")
+            # Clean up temp file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return jsonify({"status": "error", "error": f"Conversion failed: {str(conv_err)}"}), 500
 
-            try:
-                _play_wav_to_output(msg_path)
-                playback_success = True
-            except Exception as playback_err:
-                print(f"❌ Playback failed: {playback_err}")
-                playback_success = False
-                raise
-
-            # Clean up MSG.wav after playback
-            if os.path.exists(msg_path):
-                os.remove(msg_path)
-                print("🗑️ MSG.wav deleted after playback.")
-
-        # Clean up temp file
+        # Clean up temp file immediately
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
-        if playback_success:
-            return jsonify({"status": "ok", "played": True, "message": "Audio played successfully"})
-        else:
-            return jsonify({"status": "error", "error": "Playback failed"}), 500
+        # Start playback in background thread (non-blocking)
+        print(f"   Starting playback in background thread...")
+        playback_thread = threading.Thread(target=_play_and_cleanup, args=(msg_path,), daemon=True)
+        playback_thread.start()
+
+        # Return immediately - playback happens in background
+        return jsonify({"status": "ok", "message": "Audio received and queued for playback"})
 
     except Exception as e:
         error_msg = str(e)
