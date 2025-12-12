@@ -194,14 +194,47 @@ def _play_wav_to_output(wav_path: str):
 
 
 def _play_and_cleanup(msg_path: str):
-    """Background thread function to play audio and clean up."""
+    """Background thread function to play audio with PTT control and clean up."""
     try:
         with playback_lock:
             if not os.path.exists(msg_path):
                 print(f"⚠️ MSG.wav not found at {msg_path}, skipping playback")
                 return
             
+            # Get audio duration for logging
+            try:
+                sound = AudioSegment.from_file(msg_path)
+                duration_ms = len(sound)
+                duration_sec = duration_ms / 1000.0
+                print(f"📻 Audio duration: {duration_sec:.2f} seconds")
+            except Exception as e:
+                print(f"⚠️ Could not determine audio duration: {e}")
+                duration_sec = 0
+            
+            # Turn PTT ON before playback
+            if radio_ser and radio_ser.is_open:
+                try:
+                    with serial_lock:
+                        radio_ser.write(build_ptt_on_command())
+                        time.sleep(0.1)  # Small delay to ensure command is processed
+                    print("📻 PTT ON - Starting transmission...")
+                except Exception as ptt_err:
+                    print(f"⚠️ Warning: Could not turn PTT ON: {ptt_err}")
+            else:
+                print("⚠️ Warning: Radio not connected, skipping PTT control")
+            
+            # Play the audio (this blocks until playback completes)
             _play_wav_to_output(msg_path)
+            
+            # Turn PTT OFF after playback
+            if radio_ser and radio_ser.is_open:
+                try:
+                    with serial_lock:
+                        radio_ser.write(build_ptt_off_command())
+                        time.sleep(0.1)  # Small delay to ensure command is processed
+                    print("📻 PTT OFF - Transmission complete")
+                except Exception as ptt_err:
+                    print(f"⚠️ Warning: Could not turn PTT OFF: {ptt_err}")
             
             # Clean up MSG.wav after playback
             if os.path.exists(msg_path):
@@ -211,6 +244,16 @@ def _play_and_cleanup(msg_path: str):
         print(f"❌ Error in background playback thread: {e}")
         import traceback
         traceback.print_exc()
+        
+        # Ensure PTT is turned OFF even if there's an error
+        if radio_ser and radio_ser.is_open:
+            try:
+                with serial_lock:
+                    radio_ser.write(build_ptt_off_command())
+                    print("📻 PTT OFF (error recovery)")
+            except Exception:
+                pass
+        
         # Best-effort cleanup
         try:
             if os.path.exists(msg_path):
