@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { postToBackend } from "@/lib/backend"
+import { postToBackend, BACKEND_URL } from "@/lib/backend"
 
 export async function POST(request: Request) {
   try {
@@ -12,14 +12,25 @@ export async function POST(request: Request) {
 
     const frequency_hz = Math.round(frequencyMhz * 1_000_000)
 
+    console.log(`[API] Setting frequency to ${frequency_hz} Hz (${frequencyMhz} MHz)`)
+    console.log(`[API] Backend URL: ${BACKEND_URL}`)
+
     const backendResponse = await postToBackend<{ status: string }>({
       path: "/frequency",
       body: { frequency_hz },
     })
 
+    console.log(`[API] Frequency set successfully:`, backendResponse)
     return NextResponse.json({ success: true, frequency_hz, backend: backendResponse })
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to set frequency"
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    console.error("[API] Frequency set error:", error)
+    const errorMessage = error instanceof Error ? error.message : "Failed to set frequency"
+    const detailedError = `Backend URL: ${BACKEND_URL}. Error: ${errorMessage}`
+    return NextResponse.json({ 
+      success: false, 
+      error: errorMessage,
+      details: detailedError,
+      backendUrl: BACKEND_URL 
+    }, { status: 500 })
   }
 }
