@@ -9,7 +9,15 @@ from datetime import datetime
 
 import numpy as np
 import soundcard as sc
+try:
+    import sounddevice as sd
+    SOUNDDEVICE_AVAILABLE = True
+except ImportError:
+    SOUNDDEVICE_AVAILABLE = False
+    print("⚠️ sounddevice not available, falling back to soundcard")
 from pydub import AudioSegment
+from scipy.io import wavfile
+from scipy.signal import resample
 
 app = Flask(__name__)
 
@@ -43,6 +51,11 @@ ROTATOR_BAUD = 4800
 SAMPLE_RATE = 44100
 BLOCK_SIZE = 1024
 CHANNELS = 2
+
+# Radio transmission settings
+RADIO_SAMPLE_RATE = 48000  # Target sample rate for radio (FS in the example)
+RADIO_DEVICE_INDEX = 26    # Radio USB output device index (update this to match your setup)
+RADIO_VOLUME_SCALE = 0.3   # Volume scaling for transmission
 
 # Storage locations (project root level)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -151,41 +164,96 @@ def stream_audio():
 playback_lock = threading.Lock()
 
 
+def list_audio_devices():
+    """Helper function to list all available audio devices. Call this to find your radio device index."""
+    if SOUNDDEVICE_AVAILABLE:
+        print("\n📋 Available Audio Devices:")
+        print("=" * 60)
+        devices = sd.query_devices()
+        for i, device in enumerate(devices):
+            if device['max_output_channels'] > 0:
+                print(f"  [{i}] {device['name']}")
+                print(f"      Channels: {device['max_output_channels']}, Sample Rate: {device['default_samplerate']} Hz")
+        print("=" * 60)
+        print(f"\n💡 Update RADIO_DEVICE_INDEX in kevin.py with the index of your radio device\n")
+    else:
+        print("⚠️ sounddevice not available, cannot list devices")
+
+
 def _play_wav_to_output(wav_path: str):
-    """Play the given WAV file to the default speaker (i.e., into the radio audio path)."""
+    """Play the given WAV file to the radio device for transmission."""
     try:
         print(f"📢 Loading audio file: {wav_path}")
-        sound = AudioSegment.from_file(wav_path)
-        print(f"   Sample rate: {sound.frame_rate} Hz, Channels: {sound.channels}, Duration: {len(sound)}ms")
         
-        # Convert to numpy array
-        data = np.array(sound.get_array_of_samples()).astype(np.float32)
+        # Load WAV file using scipy (like the working example)
+        fs_wav, samples = wavfile.read(wav_path)
+        print(f"   Original: {fs_wav} Hz, shape: {samples.shape}, dtype: {samples.dtype}")
         
-        # Normalize based on sample width
-        if sound.sample_width == 2:
-            data /= 32768.0
-        elif sound.sample_width == 4:
-            data /= 2147483648.0
+        # Convert to float32 and normalize
+        if samples.dtype == np.int16:
+            samples = samples.astype(np.float32) / 32768.0
+        elif samples.dtype == np.int32:
+            samples = samples.astype(np.float32) / 2147483648.0
         else:
-            # Normalize to [-1, 1] range
-            max_val = np.max(np.abs(data))
-            if max_val > 0:
-                data /= max_val
+            samples = samples.astype(np.float32)
         
-        # Reshape for multi-channel audio
-        channels = sound.channels
-        if channels > 1:
-            data = data.reshape((-1, channels))
+        # Take first channel if stereo (convert to mono)
+        if samples.ndim > 1:
+            samples = samples[:, 0]
+            print(f"   Converted stereo to mono")
+        
+        # Resample to RADIO_SAMPLE_RATE if needed
+        if fs_wav != RADIO_SAMPLE_RATE:
+            num_samples = int(len(samples) * RADIO_SAMPLE_RATE / fs_wav)
+            samples = resample(samples, num_samples)
+            print(f"   Resampled from {fs_wav} Hz to {RADIO_SAMPLE_RATE} Hz")
+        
+        # Apply volume scaling
+        samples = samples * RADIO_VOLUME_SCALE
+        print(f"   Applied volume scale: {RADIO_VOLUME_SCALE}")
+        
+        # Use sounddevice to play to specific radio device
+        if SOUNDDEVICE_AVAILABLE:
+            # Get device info to determine output channels
+            try:
+                info = sd.query_devices(RADIO_DEVICE_INDEX)
+                out_channels = info['max_output_channels']
+                print(f"   Radio device: {info['name']}, Output channels: {out_channels}")
+                
+                # Ensure samples match output channels
+                if samples.ndim == 1 and out_channels > 1:
+                    # Mono to multi-channel: duplicate the channel
+                    samples = np.column_stack([samples] * out_channels)
+                elif samples.ndim > 1 and samples.shape[1] != out_channels:
+                    if out_channels == 1:
+                        samples = samples[:, 0]
+                    else:
+                        # Use first channel and duplicate
+                        samples = np.column_stack([samples[:, 0]] * out_channels)
+                
+                print(f"   Final audio shape: {samples.shape}, playing to radio device {RADIO_DEVICE_INDEX}...")
+                
+                # Play to radio device (this blocks until playback completes)
+                sd.play(samples, samplerate=RADIO_SAMPLE_RATE, device=RADIO_DEVICE_INDEX)
+                sd.wait()  # Wait until finished
+                print(f"✅ Playback completed successfully")
+            except Exception as sd_err:
+                print(f"⚠️ Error with sounddevice, falling back to soundcard: {sd_err}")
+                # Fallback to soundcard
+                if samples.ndim == 1:
+                    samples = samples.reshape((-1, 1))
+                speaker = sc.default_speaker()
+                print(f"   Using default speaker: {speaker.name}")
+                speaker.play(samples, samplerate=RADIO_SAMPLE_RATE)
         else:
-            data = data.reshape((-1, 1))
-        
-        print(f"   Audio data shape: {data.shape}, playing to speaker...")
-        speaker = sc.default_speaker()
-        print(f"   Using speaker: {speaker.name}")
-        
-        # Play the audio (this blocks until playback completes)
-        speaker.play(data, samplerate=sound.frame_rate)
-        print(f"✅ Playback completed successfully")
+            # Fallback to soundcard if sounddevice not available
+            if samples.ndim == 1:
+                samples = samples.reshape((-1, 1))
+            speaker = sc.default_speaker()
+            print(f"   Using default speaker: {speaker.name}")
+            speaker.play(samples, samplerate=RADIO_SAMPLE_RATE)
+            print(f"✅ Playback completed successfully")
+            
     except Exception as e:
         print(f"❌ Error during playback: {e}")
         import traceback
@@ -645,7 +713,36 @@ def rotator_status():
         resp = rotator_ser.read(100).decode('ascii', errors='ignore').strip()
         return jsonify({"position": resp or "no response"})
 
+# ---------------------- DEBUG/HELPER ROUTES ----------------------
+@app.route("/list_audio_devices", methods=["GET"])
+def list_devices_endpoint():
+    """Endpoint to list available audio devices."""
+    if SOUNDDEVICE_AVAILABLE:
+        devices = sd.query_devices()
+        device_list = []
+        for i, device in enumerate(devices):
+            if device['max_output_channels'] > 0:
+                device_list.append({
+                    "index": i,
+                    "name": device['name'],
+                    "channels": device['max_output_channels'],
+                    "sample_rate": device['default_samplerate']
+                })
+        return jsonify({"devices": device_list, "current_radio_index": RADIO_DEVICE_INDEX})
+    else:
+        return jsonify({"error": "sounddevice not available"}), 500
+
 # ---------------------- START ----------------------
 if __name__ == "__main__":
     print("Combined Radio + Rotator Server with USB-D1 toggle ready!")
+    print(f"\n📻 Radio Transmission Settings:")
+    print(f"   Radio Device Index: {RADIO_DEVICE_INDEX}")
+    print(f"   Radio Sample Rate: {RADIO_SAMPLE_RATE} Hz")
+    print(f"   Volume Scale: {RADIO_VOLUME_SCALE}")
+    if SOUNDDEVICE_AVAILABLE:
+        print(f"\n💡 To find your radio device index, visit: http://localhost:5000/list_audio_devices")
+        print(f"   Or check the device list above when sounddevice is available.\n")
+    else:
+        print(f"\n⚠️ sounddevice not installed. Install it with: pip install sounddevice scipy")
+        print(f"   Falling back to default speaker for audio playback.\n")
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
