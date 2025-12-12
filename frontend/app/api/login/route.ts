@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { postToBackend } from "@/lib/backend"
+import { createServerClient } from "@/lib/supabase"
 
 export async function POST(request: Request) {
   try {
@@ -9,12 +9,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "Email and password are required" }, { status: 400 })
     }
 
-    const backendResponse = await postToBackend<{ status: string }>({
-      path: "/login",
-      body: { email, password },
-    })
+    // Query Supabase Users table
+    const supabase = createServerClient()
+    const { data, error } = await supabase
+      .from("Users")
+      .select("email, password")
+      .eq("email", email.toLowerCase().trim())
+      .single()
 
-    const response = NextResponse.json({ success: true, backend: backendResponse })
+    if (error || !data) {
+      console.error("Supabase query error:", error)
+      return NextResponse.json({ success: false, error: "Invalid email or password" }, { status: 401 })
+    }
+
+    // Compare passwords (plain text as requested)
+    if (data.password !== password) {
+      return NextResponse.json({ success: false, error: "Invalid email or password" }, { status: 401 })
+    }
+
+    // Authentication successful - set cookie
+    const response = NextResponse.json({ success: true, message: "Authentication successful" })
     response.cookies.set("et3aa_auth", "authenticated", {
       httpOnly: true,
       sameSite: "lax",
@@ -24,6 +38,7 @@ export async function POST(request: Request) {
 
     return response
   } catch (error) {
+    console.error("Login error:", error)
     const message = error instanceof Error ? error.message : "Authentication failed"
     return NextResponse.json({ success: false, error: message }, { status: 401 })
   }
