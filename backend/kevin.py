@@ -1,10 +1,15 @@
 # server.py - Combined Icom CI-V + Green Heron Rotator Control (with USB-D1 toggle!)
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 import os
 import serial
 import time
 import atexit
 import threading
+from datetime import datetime
+
+import numpy as np
+import soundcard as sc
+from pydub import AudioSegment
 
 app = Flask(__name__)
 
@@ -16,6 +21,19 @@ CI_V_FROM = 0xE0
 
 ROTATOR_PORT = "COM5"
 ROTATOR_BAUD = 4800
+
+# Audio capture/output
+SAMPLE_RATE = 44100
+BLOCK_SIZE = 1024
+CHANNELS = 2
+
+# Storage locations (project root level)
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+RECORDINGS_DIR = os.path.join(PROJECT_ROOT, "recordings")
+UPLOADS_DIR = os.path.join(PROJECT_ROOT, "uploads")
+
+os.makedirs(RECORDINGS_DIR, exist_ok=True)
+os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 # Simple login credentials (override via environment variables if desired)
 ADMIN_EMAIL = os.getenv("ET3AA_EMAIL", "et3aastation@gmail.com")
@@ -52,6 +70,132 @@ def cleanup():
         if s and s.is_open:
             s.close()
             print(f"{name} port closed.")
+
+
+# ---------------------- AUDIO STREAMING ----------------------
+def gen_audio():
+    """
+    Generator that finds the system loopback/monitor and streams raw PCM bytes.
+    """
+    default_speaker = sc.default_speaker()
+    print(f"🔊 Default Speaker identified as: {default_speaker.name}")
+
+    loopback_mic = None
+    try:
+        all_mics = sc.all_microphones(include_loopback=True)
+        for mic in all_mics:
+            if mic.name == default_speaker.name:
+                loopback_mic = mic
+                break
+            if "loopback" in mic.name.lower() or "monitor" in mic.name.lower():
+                loopback_mic = mic
+                break
+
+        if loopback_mic is None and len(all_mics) > 0:
+            print("⚠️ Could not match speaker name exactly. Using the first available device.")
+            loopback_mic = all_mics[0]
+        if loopback_mic is None:
+            print("❌ No loopback device found. Is your audio driver compatible?")
+            return
+
+        print(f"🎤 Recording from Loopback Device: {loopback_mic.name}")
+        with loopback_mic.recorder(samplerate=SAMPLE_RATE, channels=CHANNELS, blocksize=BLOCK_SIZE) as mic:
+            while True:
+                data = mic.record(numframes=BLOCK_SIZE)
+                audio_bytes = (data * 32767).astype(np.int16).tobytes()
+                yield audio_bytes
+    except Exception as e:
+        print(f"❌ Error in audio capture: {e}")
+
+
+@app.route("/stream.wav")
+def stream_audio():
+    def generate():
+        # WAV header for 44.1kHz, 16-bit stereo PCM
+        yield (
+            b"RIFF"
+            + b"\xff\xff\xff\xff"
+            + b"WAVEfmt "
+            + b"\x10\x00\x00\x00"
+            + b"\x01\x00"
+            + b"\x02\x00"
+            + b"\x44\xac\x00\x00"
+            + b"\x10\xb1\x02\x00"
+            + b"\x04\x00"
+            + b"\x10\x00"
+            + b"data"
+            + b"\xff\xff\xff\xff"
+        )
+        yield from gen_audio()
+
+    return Response(generate(), mimetype="audio/wav")
+
+
+playback_lock = threading.Lock()
+
+
+def _play_wav_to_output(wav_path: str):
+    """Play the given WAV file to the default speaker (i.e., into the radio audio path)."""
+    sound = AudioSegment.from_file(wav_path)
+    data = np.array(sound.get_array_of_samples()).astype(np.float32)
+    if sound.sample_width == 2:
+        data /= 32768.0
+    elif sound.sample_width == 4:
+        data /= 2147483648.0
+    else:
+        data /= np.max(np.abs(data) + 1e-9)
+
+    channels = sound.channels
+    data = data.reshape((-1, channels))
+    speaker = sc.default_speaker()
+    speaker.play(data, samplerate=sound.frame_rate)
+
+
+@app.route("/upload_recording", methods=["POST"])
+def upload_recording():
+    if "audio" not in request.files:
+        return jsonify({"error": "No audio file"}), 400
+
+    audio_file = request.files["audio"]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    temp_path = os.path.join(UPLOADS_DIR, f"temp_{timestamp}.webm")
+    msg_path = os.path.join(RECORDINGS_DIR, "MSG.wav")
+
+    audio_file.save(temp_path)
+
+    try:
+        # Ensure only one playback at a time
+        with playback_lock:
+            # Remove old MSG if present
+            if os.path.exists(msg_path):
+                os.remove(msg_path)
+
+            sound = AudioSegment.from_file(temp_path)
+            sound.export(msg_path, format="wav")
+            print(f"✔️ Saved recording to {msg_path}, starting playback...")
+
+            _play_wav_to_output(msg_path)
+
+            os.remove(msg_path)
+            print("🗑️ MSG.wav deleted after playback.")
+
+        os.remove(temp_path)
+        return jsonify({"status": "ok", "played": True})
+    except Exception as e:
+        print(f"❌ Error while converting/playing upload: {e}")
+        # Best-effort cleanup
+        try:
+            if os.path.exists(msg_path):
+                os.remove(msg_path)
+        except Exception:
+            pass
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except Exception:
+            pass
+        return jsonify({"error": str(e)}), 500
 
 # ---------------------- CI-V HELPERS ----------------------
 def extract_all_frames(buf: bytes):
@@ -233,6 +377,7 @@ def set_mode():
     data = request.get_json(silent=True) or {}
     mode_input = data.get("mode")
 
+
     # Snapshot current combined state (used for both branches)
     state_snapshot = read_mode_and_data_state()
     current_data_mode = state_snapshot["data_mode"] if state_snapshot else 0
@@ -332,6 +477,7 @@ def ptt_off():
     radio_ser.write(build_ptt_off_command())
     time.sleep(0.1)
     return jsonify({"status": "PTT OFF"})
+
 
 @app.route("/band", methods=["POST"])
 def set_band():

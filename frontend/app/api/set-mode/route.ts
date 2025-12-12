@@ -16,21 +16,31 @@ const MODE_MAP: Record<string, number> = {
 
 export async function POST(request: Request) {
   try {
-    const { mode, filter = 1 } = await request.json()
-    const normalizedMode = String(mode || "").trim().toUpperCase()
-    const backendMode = MODE_MAP[normalizedMode]
+  const { mode, filter = 1 } = await request.json()
+  const normalizedMode = String(mode || "").trim().toUpperCase()
 
-    if (backendMode === undefined) {
-      return NextResponse.json(
-        { success: false, error: `Invalid mode. Allowed: ${Object.keys(MODE_MAP).join(", ")}` },
-        { status: 400 },
-      )
-    }
-
-    const backendResponse = await postToBackend<{ status: string }>({
+  // Special case: allow passing the literal "data" toggle through to backend.
+  if (normalizedMode === "DATA") {
+    const backendResponse = await postToBackend<{ status: string; data_mode?: number }>({
       path: "/mode",
-      body: { mode: backendMode, filter: Number(filter) || 1 },
+      body: { mode: "data" },
     })
+    return NextResponse.json({ success: true, mode: "data", backend: backendResponse })
+  }
+
+  const backendMode = MODE_MAP[normalizedMode]
+
+  if (backendMode === undefined) {
+    return NextResponse.json(
+      { success: false, error: `Invalid mode. Allowed: ${Object.keys(MODE_MAP).join(", ")}` },
+      { status: 400 },
+    )
+  }
+
+  const backendResponse = await postToBackend<{ status: string }>({
+    path: "/mode",
+    body: { mode: backendMode, filter: Number(filter) || 1 },
+  })
 
     return NextResponse.json({ success: true, mode: backendMode, backend: backendResponse })
   } catch (error) {

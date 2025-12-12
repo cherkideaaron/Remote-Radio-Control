@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Radio, LogOut } from "lucide-react"
@@ -56,23 +56,53 @@ export default function DashboardPage() {
     }
   }, [])
 
-  const handleModeChange = useCallback(async (newMode: string) => {
-    setBaseMode(newMode)
+  const syncFromBackend = useCallback(async () => {
     try {
-      const response = await fetch("/api/set-mode", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: newMode }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data?.error || "Failed to set mode")
+      const response = await fetch("/api/get-mode", { cache: "no-store" })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data?.success) {
+        console.warn("Mode sync skipped:", data?.error || `HTTP ${response.status}`)
+        return
       }
-      // If backend keeps data on, do not change dataEnabled; backend preserves it.
+      const backend = data.backend
+      if (backend?.base_mode) {
+        setBaseMode(backend.base_mode)
+      } else if (backend?.mode_name) {
+        // Fallback: parse base from mode_name like "USB-D1"
+        setBaseMode(String(backend.mode_name).split("-")[0])
+      }
+      setDataEnabled((backend?.data_mode || 0) > 0)
     } catch (error) {
-      console.error("Mode update failed:", error)
+      console.error("Sync mode failed:", error)
     }
   }, [])
+
+  useEffect(() => {
+    void syncFromBackend()
+  }, [syncFromBackend])
+
+  const handleModeChange = useCallback(
+    async (newMode: string) => {
+      setBaseMode(newMode)
+      try {
+        const response = await fetch("/api/set-mode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: newMode }),
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok || !data?.success) {
+          throw new Error(data?.error || "Failed to set mode")
+        }
+        const backend = data.backend
+        if (backend?.base_mode) setBaseMode(backend.base_mode)
+        if (typeof backend?.data_mode === "number") setDataEnabled(backend.data_mode > 0)
+      } catch (error) {
+        console.error("Mode update failed:", error)
+      }
+    },
+    [setBaseMode, setDataEnabled],
+  )
 
   const handleToggleData = useCallback(async () => {
     try {
@@ -82,15 +112,13 @@ export default function DashboardPage() {
         body: JSON.stringify({ mode: "Data" }),
       })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
+      if (!response.ok || !data?.success) {
         throw new Error(data?.error || "Failed to toggle data mode")
       }
-      // Backend returns data_mode when toggled; use it if present, else flip locally.
-      if (typeof data?.data_mode === "number") {
-        setDataEnabled(data.data_mode > 0)
-      } else {
-        setDataEnabled((prev) => !prev)
-      }
+      const backend = data.backend
+      if (typeof backend?.data_mode === "number") setDataEnabled(backend.data_mode > 0)
+      if (backend?.base_mode) setBaseMode(backend.base_mode)
+      else if (backend?.mode_name) setBaseMode(String(backend.mode_name).split("-")[0])
     } catch (error) {
       console.error("Data mode toggle failed:", error)
     }
