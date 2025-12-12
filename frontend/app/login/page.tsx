@@ -39,8 +39,8 @@ export default function LoginPage() {
         throw new Error(data?.error || "Invalid email or password")
       }
 
-      router.replace(redirectTo)
-      router.refresh()
+      // Use window.location for a hard redirect to ensure cookie is recognized
+      window.location.href = redirectTo
     } catch (err) {
       const message = err instanceof Error ? err.message : "Invalid email or password"
       setError(message)
