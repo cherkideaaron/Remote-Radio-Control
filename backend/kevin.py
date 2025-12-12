@@ -13,6 +13,14 @@ from pydub import AudioSegment
 
 app = Flask(__name__)
 
+# Enable CORS manually (works without flask-cors package)
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
+
 # ---------------------- CONFIGURATION ----------------------
 RADIO_PORT = "COM4"
 RADIO_BAUD = 9600
@@ -136,66 +144,117 @@ playback_lock = threading.Lock()
 
 def _play_wav_to_output(wav_path: str):
     """Play the given WAV file to the default speaker (i.e., into the radio audio path)."""
-    sound = AudioSegment.from_file(wav_path)
-    data = np.array(sound.get_array_of_samples()).astype(np.float32)
-    if sound.sample_width == 2:
-        data /= 32768.0
-    elif sound.sample_width == 4:
-        data /= 2147483648.0
-    else:
-        data /= np.max(np.abs(data) + 1e-9)
-
-    channels = sound.channels
-    data = data.reshape((-1, channels))
-    speaker = sc.default_speaker()
-    speaker.play(data, samplerate=sound.frame_rate)
+    try:
+        print(f"📢 Loading audio file: {wav_path}")
+        sound = AudioSegment.from_file(wav_path)
+        print(f"   Sample rate: {sound.frame_rate} Hz, Channels: {sound.channels}, Duration: {len(sound)}ms")
+        
+        # Convert to numpy array
+        data = np.array(sound.get_array_of_samples()).astype(np.float32)
+        
+        # Normalize based on sample width
+        if sound.sample_width == 2:
+            data /= 32768.0
+        elif sound.sample_width == 4:
+            data /= 2147483648.0
+        else:
+            # Normalize to [-1, 1] range
+            max_val = np.max(np.abs(data))
+            if max_val > 0:
+                data /= max_val
+        
+        # Reshape for multi-channel audio
+        channels = sound.channels
+        if channels > 1:
+            data = data.reshape((-1, channels))
+        else:
+            data = data.reshape((-1, 1))
+        
+        print(f"   Audio data shape: {data.shape}, playing to speaker...")
+        speaker = sc.default_speaker()
+        print(f"   Using speaker: {speaker.name}")
+        
+        # Play the audio (this blocks until playback completes)
+        speaker.play(data, samplerate=sound.frame_rate)
+        print(f"✅ Playback completed successfully")
+    except Exception as e:
+        print(f"❌ Error during playback: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 
 @app.route("/upload_recording", methods=["POST"])
 def upload_recording():
-    if "audio" not in request.files:
-        return jsonify({"error": "No audio file"}), 400
-
-    audio_file = request.files["audio"]
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    temp_path = os.path.join(UPLOADS_DIR, f"temp_{timestamp}.webm")
-    msg_path = os.path.join(RECORDINGS_DIR, "MSG.wav")
-
-    audio_file.save(temp_path)
-
     try:
+        if "audio" not in request.files:
+            return jsonify({"status": "error", "error": "No audio file"}), 400
+
+        audio_file = request.files["audio"]
+        if audio_file.filename == '':
+            return jsonify({"status": "error", "error": "Empty file"}), 400
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        temp_path = os.path.join(UPLOADS_DIR, f"temp_{timestamp}.webm")
+        msg_path = os.path.join(RECORDINGS_DIR, "MSG.wav")
+
+        print(f"📥 Received audio upload: {audio_file.filename}, size: {request.content_length} bytes")
+        audio_file.save(temp_path)
+        print(f"   Saved temp file: {temp_path}")
+
         # Ensure only one playback at a time
         with playback_lock:
             # Remove old MSG if present
             if os.path.exists(msg_path):
+                print(f"   Removing old MSG.wav")
                 os.remove(msg_path)
 
+            print(f"   Converting WebM to WAV...")
             sound = AudioSegment.from_file(temp_path)
             sound.export(msg_path, format="wav")
             print(f"✔️ Saved recording to {msg_path}, starting playback...")
 
-            _play_wav_to_output(msg_path)
+            try:
+                _play_wav_to_output(msg_path)
+                playback_success = True
+            except Exception as playback_err:
+                print(f"❌ Playback failed: {playback_err}")
+                playback_success = False
+                raise
 
-            os.remove(msg_path)
-            print("🗑️ MSG.wav deleted after playback.")
+            # Clean up MSG.wav after playback
+            if os.path.exists(msg_path):
+                os.remove(msg_path)
+                print("🗑️ MSG.wav deleted after playback.")
 
-        os.remove(temp_path)
-        return jsonify({"status": "ok", "played": True})
+        # Clean up temp file
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+        if playback_success:
+            return jsonify({"status": "ok", "played": True, "message": "Audio played successfully"})
+        else:
+            return jsonify({"status": "error", "error": "Playback failed"}), 500
+
     except Exception as e:
-        print(f"❌ Error while converting/playing upload: {e}")
+        error_msg = str(e)
+        print(f"❌ Error in upload_recording: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        
         # Best-effort cleanup
         try:
-            if os.path.exists(msg_path):
+            if 'msg_path' in locals() and os.path.exists(msg_path):
                 os.remove(msg_path)
         except Exception:
             pass
         try:
-            if os.path.exists(temp_path):
+            if 'temp_path' in locals() and os.path.exists(temp_path):
                 os.remove(temp_path)
         except Exception:
             pass
-        return jsonify({"error": str(e)}), 500
+        
+        return jsonify({"status": "error", "error": error_msg}), 500
 
 # ---------------------- CI-V HELPERS ----------------------
 def extract_all_frames(buf: bytes):
