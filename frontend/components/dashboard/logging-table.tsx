@@ -4,18 +4,19 @@ import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { BookOpen, Plus, Trash2 } from "lucide-react"
 
 interface LogEntry {
   id: number
   date_time: string
-  frequency: string  // ← Changed to string
+  frequency: string
   call_sign: string
   report: string
 }
 
 interface LoggingTableProps {
-  currentFrequency: string // ← Changed to string (MHz as string, e.g. "14.250")
+  currentFrequency: string
 }
 
 export function LoggingTable({ currentFrequency }: LoggingTableProps) {
@@ -25,8 +26,9 @@ export function LoggingTable({ currentFrequency }: LoggingTableProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const callSignInputRef = useRef<HTMLInputElement>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; callSign: string } | null>(null)
 
-  // Load logs on mount
   useEffect(() => {
     loadLogs()
   }, [])
@@ -37,7 +39,6 @@ export function LoggingTable({ currentFrequency }: LoggingTableProps) {
       const response = await fetch("/api/logs", { cache: "no-store" })
       const data = await response.json()
       if (data.success && data.logs) {
-        // Sort by date_time descending (newest first)
         const sortedLogs = [...data.logs].sort(
           (a, b) => new Date(b.date_time).getTime() - new Date(a.date_time).getTime()
         )
@@ -63,7 +64,7 @@ export function LoggingTable({ currentFrequency }: LoggingTableProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          frequency: currentFrequency, // already a string
+          frequency: currentFrequency,
           call_sign: callSign.trim().toUpperCase(),
           report: report.trim() || "",
         }),
@@ -74,7 +75,7 @@ export function LoggingTable({ currentFrequency }: LoggingTableProps) {
         const newLog: LogEntry = {
           id: data.log.id,
           date_time: data.log.date_time,
-          frequency: data.log.frequency, // will be string from DB
+          frequency: data.log.frequency,
           call_sign: data.log.call_sign,
           report: data.log.report,
         }
@@ -95,19 +96,31 @@ export function LoggingTable({ currentFrequency }: LoggingTableProps) {
     }
   }
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this log entry?")) {
-      return
-    }
+  const openDeleteDialog = (id: number, callSign: string) => {
+    setDeleteTarget({ id, callSign })
+    setDeleteDialogOpen(true)
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return
+
+    const { id, callSign } = deleteTarget
 
     try {
       const response = await fetch(`/api/logs/${id}`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ call_sign: callSign }),
       })
 
       const data = await response.json()
+      
       if (data.success) {
-        setLogs(logs.filter((log) => log.id !== id))
+        // Update local state to remove the log immediately
+        setLogs((currentLogs) => currentLogs.filter((log) => log.id !== id))
+        // Close dialog and reset target
+        setDeleteDialogOpen(false)
+        setDeleteTarget(null)
       } else {
         console.error("Failed to delete log:", data.error)
         alert(`Failed to delete log: ${data.error}`)
@@ -118,7 +131,6 @@ export function LoggingTable({ currentFrequency }: LoggingTableProps) {
     }
   }
 
-  // Updated to accept string frequency
   const formatFrequency = (freq: string | number) => {
     const num = typeof freq === "string" ? parseFloat(freq) : freq
     if (isNaN(num)) return freq.toString()
@@ -232,7 +244,7 @@ export function LoggingTable({ currentFrequency }: LoggingTableProps) {
                           variant="ghost"
                           size="sm"
                           className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-                          onClick={() => handleDelete(log.id)}
+                          onClick={() => openDeleteDialog(log.id, log.call_sign)}
                         >
                           <Trash2 className="w-3 h-3" />
                         </Button>
@@ -249,6 +261,26 @@ export function LoggingTable({ currentFrequency }: LoggingTableProps) {
           {logs.length} contact{logs.length !== 1 ? "s" : ""} logged
         </p>
       </CardContent>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Delete</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete the log for call sign {deleteTarget?.callSign}?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }
