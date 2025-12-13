@@ -9,13 +9,13 @@ import { BookOpen, Plus, Trash2 } from "lucide-react"
 interface LogEntry {
   id: number
   date_time: string
-  frequency: number
+  frequency: string  // ← Changed to string
   call_sign: string
   report: string
 }
 
 interface LoggingTableProps {
-  currentFrequency: number // MHz
+  currentFrequency: string // ← Changed to string (MHz as string, e.g. "14.250")
 }
 
 export function LoggingTable({ currentFrequency }: LoggingTableProps) {
@@ -54,7 +54,7 @@ export function LoggingTable({ currentFrequency }: LoggingTableProps) {
     e.preventDefault()
     
     if (!callSign.trim()) {
-      return // Don't submit if call sign is empty
+      return
     }
 
     setIsSaving(true)
@@ -63,7 +63,7 @@ export function LoggingTable({ currentFrequency }: LoggingTableProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          frequency: currentFrequency,
+          frequency: currentFrequency, // already a string
           call_sign: callSign.trim().toUpperCase(),
           report: report.trim() || "",
         }),
@@ -71,21 +71,17 @@ export function LoggingTable({ currentFrequency }: LoggingTableProps) {
 
       const data = await response.json()
       if (data.success) {
-        // Add new log to the list (at the top)
         const newLog: LogEntry = {
           id: data.log.id,
           date_time: data.log.date_time,
-          frequency: data.log.frequency,
+          frequency: data.log.frequency, // will be string from DB
           call_sign: data.log.call_sign,
           report: data.log.report,
         }
         setLogs([newLog, ...logs])
         
-        // Clear form
         setCallSign("")
         setReport("")
-        
-        // Focus back on call sign input
         callSignInputRef.current?.focus()
       } else {
         console.error("Failed to save log:", data.error)
@@ -111,7 +107,6 @@ export function LoggingTable({ currentFrequency }: LoggingTableProps) {
 
       const data = await response.json()
       if (data.success) {
-        // Remove from list
         setLogs(logs.filter((log) => log.id !== id))
       } else {
         console.error("Failed to delete log:", data.error)
@@ -123,8 +118,11 @@ export function LoggingTable({ currentFrequency }: LoggingTableProps) {
     }
   }
 
-  const formatFrequency = (freq: number) => {
-    return freq.toFixed(3)
+  // Updated to accept string frequency
+  const formatFrequency = (freq: string | number) => {
+    const num = typeof freq === "string" ? parseFloat(freq) : freq
+    if (isNaN(num)) return freq.toString()
+    return num.toFixed(3)
   }
 
   const formatDateTime = (dateTime: string) => {
@@ -254,4 +252,3 @@ export function LoggingTable({ currentFrequency }: LoggingTableProps) {
     </Card>
   )
 }
-
