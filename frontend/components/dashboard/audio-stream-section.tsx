@@ -44,9 +44,9 @@ export function AudioStreamSection() {
     if (!audioEl) return
 
     if (checked) {
-      const streamUrl = `${BACKEND_URL}/stream.wav?t=${Date.now()}`
-      console.log("🎵 Attempting to load audio from:", streamUrl)
-      console.log("🔗 BACKEND_URL:", BACKEND_URL)
+      // Use Next.js API route to proxy the stream (avoids CORS issues)
+      const streamUrl = `/api/audio-stream?t=${Date.now()}`
+      console.log("🎵 Loading audio stream via API proxy...")
       
       audioEl.src = streamUrl
       try {
@@ -62,7 +62,7 @@ export function AudioStreamSection() {
         // Show user-friendly error
         if (e instanceof Error) {
           if (e.name === "NotSupportedError") {
-            alert(`Audio stream failed to load. Check console for URL.\n\nBackend URL: ${BACKEND_URL}\n\nMake sure:\n1. Backend is running\n2. ngrok is active\n3. NEXT_PUBLIC_BACKEND_URL is set in Vercel`)
+            alert(`Audio stream failed to load.\n\nPossible causes:\n1. Backend audio stream is not running\n2. Check backend console for errors\n3. Try refreshing the page`)
           } else if (e.name === "NotAllowedError") {
             alert("Autoplay blocked by browser. Click the toggle again to enable audio.")
           }
@@ -71,6 +71,7 @@ export function AudioStreamSection() {
     } else {
       audioEl.pause()
       audioEl.src = ""
+      console.log("🔇 Audio stream stopped")
     }
   }
 
