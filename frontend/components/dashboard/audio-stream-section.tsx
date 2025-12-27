@@ -44,11 +44,29 @@ export function AudioStreamSection() {
     if (!audioEl) return
 
     if (checked) {
-      audioEl.src = `${BACKEND_URL}/stream.wav?t=${Date.now()}`
+      const streamUrl = `${BACKEND_URL}/stream.wav?t=${Date.now()}`
+      console.log("🎵 Attempting to load audio from:", streamUrl)
+      console.log("🔗 BACKEND_URL:", BACKEND_URL)
+      
+      audioEl.src = streamUrl
       try {
         await audioEl.play()
+        console.log("✅ Audio stream started successfully")
       } catch (e) {
-        console.error("Autoplay blocked:", e)
+        console.error("❌ Audio playback error:", e)
+        console.error("Error details:", e instanceof Error ? e.message : String(e))
+        
+        // Reset the toggle on error
+        setIsOn(false)
+        
+        // Show user-friendly error
+        if (e instanceof Error) {
+          if (e.name === "NotSupportedError") {
+            alert(`Audio stream failed to load. Check console for URL.\n\nBackend URL: ${BACKEND_URL}\n\nMake sure:\n1. Backend is running\n2. ngrok is active\n3. NEXT_PUBLIC_BACKEND_URL is set in Vercel`)
+          } else if (e.name === "NotAllowedError") {
+            alert("Autoplay blocked by browser. Click the toggle again to enable audio.")
+          }
+        }
       }
     } else {
       audioEl.pause()

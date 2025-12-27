@@ -55,7 +55,7 @@ CHANNELS = 2
 # Radio transmission settings
 RADIO_SAMPLE_RATE = 48000  # Target sample rate for radio (FS in the example)
 RADIO_DEVICE_INDEX = 26    # Radio USB output device index (update this to match your setup)
-RADIO_VOLUME_SCALE = 0.3   # Volume scaling for transmission
+RADIO_VOLUME_SCALE = 0.8   # Volume scaling for transmission (increased from 0.3)
 
 # Storage locations (project root level)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -208,9 +208,16 @@ def _play_wav_to_output(wav_path: str):
             samples = resample(samples, num_samples)
             print(f"   Resampled from {fs_wav} Hz to {RADIO_SAMPLE_RATE} Hz")
         
-        # Apply volume scaling
-        samples = samples * RADIO_VOLUME_SCALE
-        print(f"   Applied volume scale: {RADIO_VOLUME_SCALE}")
+        # Normalize and boost volume: find peak and scale up if needed
+        peak = np.max(np.abs(samples))
+        if peak > 0:
+            # Normalize to use more of the available range, then apply volume scale
+            # This boosts quiet files while preventing clipping
+            normalization_factor = 0.95 / peak  # Leave 5% headroom
+            samples = samples * normalization_factor * RADIO_VOLUME_SCALE
+            print(f"   Normalized peak: {peak:.4f}, applied volume scale: {RADIO_VOLUME_SCALE}")
+        else:
+            print(f"   Warning: Audio is silent (peak = 0)")
         
         # Use sounddevice to play to specific radio device
         if SOUNDDEVICE_AVAILABLE:
