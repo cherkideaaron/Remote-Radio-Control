@@ -231,7 +231,7 @@ export default function DashboardPage() {
           {/* Right Column - PTT & Antenna */}
           <div className="space-y-6">
             <PTTButton />
-            <LoggingTable currentFrequency={frequency} />
+            <LoggingTable currentFrequency={frequency.toString()} />
             <AntennaCompass direction={antennaDirection} onRotate={handleRotateAntenna} />
           </div>
         </div>

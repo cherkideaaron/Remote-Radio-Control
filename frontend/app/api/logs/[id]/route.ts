@@ -1,58 +1,67 @@
+// app/api/logs/[id]/route.ts
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase"
 
-// DELETE log by ID
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> } // Type defined as Promise
 ) {
   try {
-    const id = parseInt(params.id)
+    // FIX: Await the params before accessing properties (Required in Next.js 15+)
+    const resolvedParams = await params
+    const id = parseInt(resolvedParams.id, 10)
 
-    if (isNaN(id)) {
+    if (isNaN(id) || id <= 0) {
       return NextResponse.json(
         { success: false, error: "Invalid log ID" },
         { status: 400 }
       )
     }
 
+    const body = await request.json()
+    const { call_sign } = body
+
+    if (!call_sign) {
+      return NextResponse.json(
+        { success: false, error: "Call sign is required" },
+        { status: 400 }
+      )
+    }
+
     const supabase = createServerClient()
-    
-    // Try common table names - adjust if your table has a different name
-    let error
-    
-    // Try "logs" first
+
+    // We try 'logs' first
     let result = await supabase
       .from("logs")
       .delete()
       .eq("id", id)
-    
-    error = result.error
-    
-    // If "logs" doesn't exist, try "Logs" (capitalized)
-    if (error && error.code === "PGRST116") {
+      .eq("call_sign", call_sign.trim().toUpperCase())
+      .select()
+
+    // Fallback logic if 'logs' doesn't exist (matching your other files)
+    if (result.error && result.error.code === "PGRST116") {
       result = await supabase
         .from("Logs")
         .delete()
         .eq("id", id)
-      error = result.error
+        .eq("call_sign", call_sign.trim().toUpperCase())
+        .select()
     }
 
-    if (error) {
-      console.error("Supabase delete error:", error)
+    if (result.error) {
+      console.error("Supabase delete error:", result.error)
       return NextResponse.json(
-        { success: false, error: "Failed to delete log" },
+        { success: false, error: result.error.message },
         { status: 500 }
       )
     }
 
     return NextResponse.json({ success: true })
-  } catch (error) {
-    console.error("Error deleting log:", error)
+  } catch (err) {
+    console.error("Unexpected error:", err)
     return NextResponse.json(
-      { success: false, error: "Failed to delete log" },
+      { success: false, error: "Internal server error" },
       { status: 500 }
     )
   }
 }
-
